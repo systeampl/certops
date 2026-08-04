@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	checker "github.com/pawel-cygal/certops/internal/check"
+	checker "github.com/systeampl/certops/internal/check"
 )
 
 func printYAMLReports(reports []checker.Report) {

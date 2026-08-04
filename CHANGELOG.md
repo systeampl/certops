@@ -5,6 +5,22 @@ Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- moved the public Go module namespace to `github.com/systeampl/certops`
+- aligned CI, releases, dependency updates, contribution guidance, and build
+  metadata with the SysTeam Ops Tools contract
+- added `--version` as an alias for the existing text, JSON, and YAML version
+  output
+- exposed the common `info`, `warn`, `critical`, and `error` severities from
+  the supported Go package
+- added `schema_version` to standalone CRL reports
+
+### Fixed
+
+- replaced deprecated X.509 CRL and certificate-pool APIs and removed dead
+  formatting helpers found by Staticcheck
+
 ## [0.2.0] - 2026-08-04
 
 ### Added
@@ -43,7 +59,6 @@ Semantic Versioning.
 - Initial PKI provider, endpoint, trust-store, fleet, plan, drift, and reporting
   implementation.
 
-[Unreleased]: https://github.com/pawel-cygal/certops/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/pawel-cygal/certops/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/pawel-cygal/certops/releases/tag/v0.1.0
-
+[Unreleased]: https://github.com/systeampl/certops/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/systeampl/certops/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/systeampl/certops/releases/tag/v0.1.0

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	checker "github.com/pawel-cygal/certops/internal/check"
-	"github.com/pawel-cygal/certops/internal/verify"
+	checker "github.com/systeampl/certops/internal/check"
+	"github.com/systeampl/certops/internal/verify"
 )
 
 func writeReportsHTML(path, title string, reports []checker.Report) error {
@@ -275,10 +275,6 @@ func formatDays(days int) string {
 		return "0 days"
 	}
 	return formatInt(days) + " days"
-}
-
-func formatSummary(matched, total, errors int) string {
-	return formatInt(matched) + "/" + formatInt(total) + " matched, " + formatInt(errors) + " failed"
 }
 
 func formatInt(v int) string {

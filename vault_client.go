@@ -75,7 +75,7 @@ func fetchVaultCA(opts vaultOptions) (vaultCA, []byte, error) {
 		return ca, nil, err
 	}
 	if status < 200 || status >= 300 {
-		return ca, nil, fmt.Errorf("Vault CA fetch failed: HTTP %d", status)
+		return ca, nil, fmt.Errorf("vault CA fetch failed: HTTP %d", status)
 	}
 	certs, _, err := parseTrustCerts(body)
 	if err != nil {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	checker "github.com/pawel-cygal/certops/internal/check"
+	checker "github.com/systeampl/certops/internal/check"
 )
 
 func cmdCheck(args []string) {
@@ -300,13 +300,6 @@ func warnIfFalse(ok bool) string {
 		return "ok"
 	}
 	return "warn"
-}
-
-func expiryCell(report checker.Report) string {
-	if report.Certificate.NotAfter == "" {
-		return "-"
-	}
-	return fmt.Sprintf("%s (%d days)", report.Certificate.NotAfter, report.Certificate.DaysRemaining)
 }
 
 func expiryDaysCell(report checker.Report) string {

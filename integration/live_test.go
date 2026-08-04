@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pawel-cygal/certops/pkg/certops"
+	"github.com/systeampl/certops/pkg/certops"
 )
 
 func TestLivePublicTLSEndpoint(t *testing.T) {

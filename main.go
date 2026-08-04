@@ -34,7 +34,7 @@ func main() {
 		cmdTrust(os.Args[2:])
 	case "verify":
 		cmdVerify(os.Args[2:])
-	case "version":
+	case "version", "--version":
 		cmdVersion(os.Args[2:])
 	case "help", "-h", "--help":
 		usage()

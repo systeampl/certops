@@ -15,6 +15,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/systeampl/certops/internal/reportcontract"
 )
 
 type Options struct {
@@ -38,6 +40,7 @@ type Finding struct {
 }
 
 type Report struct {
+	SchemaVersion       string    `json:"schema_version" yaml:"schema_version"`
 	Name                string    `json:"name,omitempty" yaml:"name,omitempty"`
 	Source              string    `json:"source" yaml:"source"`
 	Status              string    `json:"status" yaml:"status"`
@@ -63,7 +66,7 @@ func Run(ctx context.Context, opts Options) Report {
 
 func Check(ctx context.Context, opts Options) (Report, *x509.RevocationList, error) {
 	normalizeOptions(&opts)
-	report := Report{Name: opts.Name, Source: opts.Source, Status: "ok"}
+	report := Report{SchemaVersion: reportcontract.SchemaVersion, Name: opts.Name, Source: opts.Source, Status: "ok"}
 	if strings.TrimSpace(opts.Source) == "" {
 		err := fmt.Errorf("CRL source is required")
 		report.Status = "critical"
@@ -171,9 +174,6 @@ func populateReport(report *Report, list *x509.RevocationList, der []byte) {
 	report.DaysRemaining = int(time.Until(list.NextUpdate).Hours() / 24)
 	report.AgeSeconds = int64(time.Since(list.ThisUpdate).Seconds())
 	report.RevokedCertificates = len(list.RevokedCertificateEntries)
-	if report.RevokedCertificates == 0 {
-		report.RevokedCertificates = len(list.RevokedCertificates)
-	}
 	if list.Number != nil {
 		report.Number = list.Number.String()
 	}
@@ -288,11 +288,6 @@ func CertificateRevoked(cert *x509.Certificate, lists []*x509.RevocationList) (b
 			continue
 		}
 		for _, entry := range list.RevokedCertificateEntries {
-			if entry.SerialNumber != nil && entry.SerialNumber.Cmp(cert.SerialNumber) == 0 {
-				return true, list.Issuer.String()
-			}
-		}
-		for _, entry := range list.RevokedCertificates {
 			if entry.SerialNumber != nil && entry.SerialNumber.Cmp(cert.SerialNumber) == 0 {
 				return true, list.Issuer.String()
 			}

@@ -2,7 +2,6 @@ package check
 
 import (
 	"context"
-	"crypto/dsa"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
@@ -17,11 +16,18 @@ import (
 	"strings"
 	"time"
 
-	crlcheck "github.com/pawel-cygal/certops/internal/crl"
+	crlcheck "github.com/systeampl/certops/internal/crl"
+	"github.com/systeampl/certops/internal/reportcontract"
 	"golang.org/x/crypto/ocsp"
 )
 
-const SchemaVersion = "certops.report.v1"
+const (
+	SchemaVersion    = reportcontract.SchemaVersion
+	SeverityInfo     = reportcontract.SeverityInfo
+	SeverityWarn     = reportcontract.SeverityWarn
+	SeverityCritical = reportcontract.SeverityCritical
+	SeverityError    = reportcontract.SeverityError
+)
 
 type Options struct {
 	WarnDays           int
@@ -455,6 +461,7 @@ func loadCertPool(path string) (*x509.CertPool, error) {
 		return nil, err
 	}
 	pool := x509.NewCertPool()
+	count := 0
 	for {
 		block, rest := pem.Decode(data)
 		if block == nil {
@@ -472,8 +479,9 @@ func loadCertPool(path string) (*x509.CertPool, error) {
 			return nil, fmt.Errorf("configured CA bundle contains a non-CA certificate: %s", cert.Subject.String())
 		}
 		pool.AddCert(cert)
+		count++
 	}
-	if len(pool.Subjects()) == 0 {
+	if count == 0 {
 		return nil, fmt.Errorf("no certificates found in %s", path)
 	}
 	return pool, nil
@@ -506,8 +514,6 @@ func certificateKeyInfo(cert *x509.Certificate) (string, int) {
 		return algorithm, key.Curve.Params().BitSize
 	case ed25519.PublicKey:
 		return algorithm, len(key) * 8
-	case *dsa.PublicKey:
-		return algorithm, key.P.BitLen()
 	default:
 		return algorithm, 0
 	}

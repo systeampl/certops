@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pawel-cygal/certops/internal/verify"
+	"github.com/systeampl/certops/internal/verify"
 
 	"gopkg.in/yaml.v3"
 )

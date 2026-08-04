@@ -63,7 +63,7 @@ func fetchSmallstepRoots(baseURL, fingerprint string, timeout time.Duration, ins
 		return roots, nil, err
 	}
 	if status < 200 || status >= 300 {
-		return roots, nil, fmt.Errorf("Smallstep roots fetch failed: HTTP %d", status)
+		return roots, nil, fmt.Errorf("smallstep roots fetch failed: HTTP %d", status)
 	}
 	certs, _, err := parseTrustCerts(body)
 	if err != nil {

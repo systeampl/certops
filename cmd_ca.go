@@ -61,18 +61,7 @@ func cmdCAList(args []string) {
 	}
 	rows := make([]caConfigRow, 0, len(cfg.CAs))
 	for _, ca := range cfg.CAs {
-		rows = append(rows, caConfigRow{
-			Name:        ca.Name,
-			Provider:    ca.Provider,
-			URL:         ca.URL,
-			CABundle:    ca.CABundle,
-			Fingerprint: ca.Fingerprint,
-			Insecure:    ca.Insecure,
-			Mount:       ca.Mount,
-			Issuer:      ca.Issuer,
-			Label:       ca.Label,
-			Profile:     ca.Profile,
-		})
+		rows = append(rows, caConfigRow(ca))
 	}
 	printCARows(rows, format)
 }
@@ -143,7 +132,7 @@ func configuredCAPEM(ca configCA) ([]byte, int, error) {
 			return nil, 0, err
 		}
 		if report.Status == "critical" {
-			return nil, 0, fmt.Errorf("Smallstep root validation failed: %s", firstSmallstepFinding(report))
+			return nil, 0, fmt.Errorf("smallstep root validation failed: %s", firstSmallstepFinding(report))
 		}
 		certs, _, err := parseTrustCerts(pemData)
 		return pemData, len(certs), err
@@ -161,7 +150,7 @@ func configuredCAPEM(ca configCA) ([]byte, int, error) {
 			return nil, 0, err
 		}
 		if report.Status == "critical" {
-			return nil, 0, fmt.Errorf("Vault CA validation failed: %s", firstVaultFinding(report))
+			return nil, 0, fmt.Errorf("vault CA validation failed: %s", firstVaultFinding(report))
 		}
 		certs, _, err := parseTrustCerts(pemData)
 		return pemData, len(certs), err

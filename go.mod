@@ -1,4 +1,4 @@
-module github.com/pawel-cygal/certops
+module github.com/systeampl/certops
 
 go 1.25.0
 

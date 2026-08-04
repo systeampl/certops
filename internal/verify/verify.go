@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	checker "github.com/pawel-cygal/certops/internal/check"
+	checker "github.com/systeampl/certops/internal/check"
 
 	"gopkg.in/yaml.v3"
 )

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	engine "github.com/pawel-cygal/certops/pkg/certops"
+	engine "github.com/systeampl/certops/pkg/certops"
 
 	"gopkg.in/yaml.v3"
 )

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	checker "github.com/pawel-cygal/certops/internal/check"
-	crlcheck "github.com/pawel-cygal/certops/internal/crl"
+	checker "github.com/systeampl/certops/internal/check"
+	crlcheck "github.com/systeampl/certops/internal/crl"
 )
 
 func livePlanItems(cfg certopsConfig, opts planOptions) []planItem {

@@ -10,11 +10,17 @@ import (
 	"strconv"
 	"strings"
 
-	checker "github.com/pawel-cygal/certops/internal/check"
-	crlcheck "github.com/pawel-cygal/certops/internal/crl"
+	checker "github.com/systeampl/certops/internal/check"
+	crlcheck "github.com/systeampl/certops/internal/crl"
 )
 
-const SchemaVersion = checker.SchemaVersion
+const (
+	SchemaVersion    = checker.SchemaVersion
+	SeverityInfo     = checker.SeverityInfo
+	SeverityWarn     = checker.SeverityWarn
+	SeverityCritical = checker.SeverityCritical
+	SeverityError    = checker.SeverityError
+)
 
 type CheckOptions = checker.Options
 type Finding = checker.Finding

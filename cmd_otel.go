@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	checker "github.com/pawel-cygal/certops/internal/check"
-	crlcheck "github.com/pawel-cygal/certops/internal/crl"
-	"github.com/pawel-cygal/certops/internal/verify"
+	checker "github.com/systeampl/certops/internal/check"
+	crlcheck "github.com/systeampl/certops/internal/crl"
+	"github.com/systeampl/certops/internal/verify"
 )
 
 type otelPayload struct {

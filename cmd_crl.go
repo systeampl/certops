@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	crlcheck "github.com/pawel-cygal/certops/internal/crl"
+	crlcheck "github.com/systeampl/certops/internal/crl"
 )
 
 func cmdCRL(args []string) {

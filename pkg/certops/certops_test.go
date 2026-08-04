@@ -1,6 +1,22 @@
 package certops
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
+
+func TestPublicContract(t *testing.T) {
+	if SchemaVersion != "certops.report.v1" {
+		t.Fatalf("SchemaVersion = %q", SchemaVersion)
+	}
+	if SeverityInfo != "info" || SeverityWarn != "warn" || SeverityCritical != "critical" || SeverityError != "error" {
+		t.Fatal("unexpected severity contract")
+	}
+	crlReport := CheckCRL(context.Background(), CRLOptions{})
+	if crlReport.SchemaVersion != SchemaVersion {
+		t.Fatalf("CRL schema = %q", crlReport.SchemaVersion)
+	}
+}
 
 func TestNormalizeTarget(t *testing.T) {
 	tests := []struct {

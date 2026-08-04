@@ -1,8 +1,17 @@
 # certops
 
+[![CI](https://github.com/systeampl/certops/actions/workflows/ci.yml/badge.svg)](https://github.com/systeampl/certops/actions/workflows/ci.yml)
+
 `certops` is a PKI and TLS operations CLI. It checks CA providers, endpoint
 certificates, local trust stores, and remote Linux trust stores from one
 terminal tool.
+
+Part of [SysTeam Ops Tools](https://github.com/systeampl):
+[dnsops](https://github.com/systeampl/dnsops) ·
+[certops](https://github.com/systeampl/certops) ·
+[mailops](https://github.com/systeampl/mailops). The open-source tools are
+built by [SysTeam](https://systeam.pl), run standalone, and provide structured
+results designed for deep checks in [SysChecks](https://syschecks.com).
 
 The main workflow is config-driven:
 
@@ -37,13 +46,14 @@ only report state. Commands that change trust stores require explicit `--yes`.
 ## Install
 
 ```bash
-git clone https://github.com/pawel-cygal/certops.git
+git clone https://github.com/systeampl/certops.git
 cd certops
 go build -o certops .
 sudo install -m 0755 certops /usr/local/bin/certops
 ```
 
-Check the installed build with `certops version` or `certops version --json`.
+Check the installed build with `certops version`, `certops version --json`, or
+`certops --version --yaml`.
 
 For a local build without VCS metadata:
 
@@ -363,7 +373,7 @@ go vet ./...
 go build -buildvcs=false -o /tmp/certops .
 ```
 
-The reusable engine is available at `github.com/pawel-cygal/certops/pkg/certops`:
+The reusable engine is available at `github.com/systeampl/certops/pkg/certops`:
 
 ```go
 report, err := certops.CheckTarget(ctx, "api.example.com", certops.CheckOptions{
@@ -373,7 +383,11 @@ report, err := certops.CheckTarget(ctx, "api.example.com", certops.CheckOptions{
 ```
 
 Machine-readable endpoint reports include `schema_version`; consumers should
-validate it against `certops.SchemaVersion`.
+validate it against `certops.SchemaVersion`, currently `certops.report.v1`.
+New fields may be added within that version; breaking changes increment its
+major component. Common finding severity constants are `info`, `warn`,
+`critical`, and `error`. Integration adapters belong in the consuming product,
+so the standalone tool and its public engine remain reusable.
 
 ## License
 
