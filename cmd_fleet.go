@@ -66,7 +66,7 @@ func cmdFleetTrust(args []string) {
 	default:
 		fatal("unknown fleet trust action: " + args[0])
 	}
-	args = normalizeFlagArgs(args[1:], map[string]bool{"-f": true, "--limit": true, "--html": true})
+	args = normalizeFlagArgs(args[1:], map[string]bool{"-f": true, "--limit": true, "--html": true, "--fail-on": true})
 	fs := flag.NewFlagSet("fleet trust "+displayAction, flag.ExitOnError)
 	file := fs.String("f", "certops.yaml", "config file")
 	limit := fs.String("limit", "", "limit to host or group")
@@ -74,10 +74,14 @@ func cmdFleetTrust(args []string) {
 	jsonOut := fs.Bool("json", false, "emit JSON")
 	yamlOut := fs.Bool("yaml", false, "emit YAML")
 	yes := fs.Bool("yes", false, "allow remote trust-store changes for install")
+	failOn := fs.String("fail-on", "", "exit non-zero on warn or critical; defaults to policy.fail_on or critical")
 	fs.Parse(args)
 
 	format, err := resolveOutput(*jsonOut, *yamlOut, false)
 	if err != nil {
+		fatal(err.Error())
+	}
+	if err := validateFailOn(*failOn); err != nil {
 		fatal(err.Error())
 	}
 	if (action == "install" || action == "remove") && !*yes {
@@ -95,7 +99,8 @@ func cmdFleetTrust(args []string) {
 		}
 	}
 	printFleetTrustReport(report, format)
-	if report.Status == "critical" {
+	effective := effectiveFailOn(*failOn, cfg.Policy.FailOn, "critical")
+	if report.Status == "critical" || (report.Status == "warn" && effective == "warn") {
 		os.Exit(1)
 	}
 }

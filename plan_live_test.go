@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	checker "certops/internal/check"
+	checker "github.com/pawel-cygal/certops/internal/check"
 )
 
 func TestLiveCAPlanItemWarnsBelowPolicyThreshold(t *testing.T) {

@@ -24,6 +24,7 @@ func cmdTrustAction(action string, args []string) {
 		"--ca-bundle":     true,
 		"--fingerprint":   true,
 		"--name":          true,
+		"--fail-on":       true,
 		"--smallstep-url": true,
 		"--url":           true,
 	})
@@ -37,10 +38,14 @@ func cmdTrustAction(action string, args []string) {
 	yamlOut := fs.Bool("yaml", false, "emit YAML")
 	promOut := fs.Bool("prom", false, "emit Prometheus text output")
 	yes := fs.Bool("yes", false, "allow trust-store changes for install")
+	failOn := fs.String("fail-on", "critical", "exit non-zero on warn or critical")
 	fs.Parse(args)
 
 	format, err := resolveOutput(*jsonOut, *yamlOut, *promOut)
 	if err != nil {
+		fatal(err.Error())
+	}
+	if err := validateFailOn(*failOn); err != nil {
 		fatal(err.Error())
 	}
 	source, err := loadTrustSource(*caBundle, *url, *smallstepURL, *fingerprint)
@@ -58,6 +63,10 @@ func cmdTrustAction(action string, args []string) {
 	report := buildTrustReport(action, source, certs, rawCerts, plan)
 
 	if action == "install" {
+		if report.Status == "critical" {
+			printTrustReport(report, format)
+			os.Exit(1)
+		}
 		if !*yes {
 			report.Status = "warn"
 			report.Findings = append(report.Findings, trustFinding{
@@ -77,7 +86,7 @@ func cmdTrustAction(action string, args []string) {
 	}
 
 	printTrustReport(report, format)
-	if report.Status == "critical" {
+	if report.Status == "critical" || (report.Status == "warn" && strings.EqualFold(*failOn, "warn")) {
 		os.Exit(1)
 	}
 }

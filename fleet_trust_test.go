@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -41,6 +42,35 @@ func TestExpandFleetTrustTargetsHostAndGroup(t *testing.T) {
 	}
 	if len(targets) != 1 || targets[0].Host.Name != "web-02" || targets[0].CAName != "root-a" {
 		t.Fatalf("unexpected limited targets: %+v", targets)
+	}
+}
+
+func TestFleetSSHUsesPersistentHostKeyVerification(t *testing.T) {
+	args := strings.Join(fleetSSHArgs(fleetHost{Address: "192.0.2.10", User: "ops", Port: "22"}, "true"), " ")
+	if !strings.Contains(args, "StrictHostKeyChecking=accept-new") {
+		t.Fatalf("SSH args do not enable TOFU host key verification: %s", args)
+	}
+	for _, unsafe := range []string{"StrictHostKeyChecking=no", "UserKnownHostsFile=/tmp"} {
+		if strings.Contains(args, unsafe) {
+			t.Fatalf("SSH args contain unsafe option %q: %s", unsafe, args)
+		}
+	}
+}
+
+func TestExpandFleetTrustTargetsIsDeterministic(t *testing.T) {
+	cfg := certopsConfig{
+		Inventory: configInventory{Groups: map[string]configGroup{"web": {Hosts: map[string]configHost{
+			"web-02": {Address: "10.0.0.2"},
+			"web-01": {Address: "10.0.0.1"},
+		}}}},
+		Trust: configTrust{Targets: []configTrustTarget{{Group: "web", Required: []string{"root"}}}},
+	}
+	targets, failures := expandFleetTrustTargets(cfg, "")
+	if len(failures) != 0 || len(targets) != 2 {
+		t.Fatalf("targets/failures = %+v/%+v", targets, failures)
+	}
+	if targets[0].Host.Name != "web-01" || targets[1].Host.Name != "web-02" {
+		t.Fatalf("target order = %s, %s", targets[0].Host.Name, targets[1].Host.Name)
 	}
 }
 

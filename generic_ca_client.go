@@ -53,7 +53,7 @@ func validateGenericCA(ca genericCA) []genericCAFinding {
 	}
 	for _, cert := range ca.Certs {
 		if !cert.IsCA {
-			findings = append(findings, genericCAFinding{Severity: "warn", Message: "bundle contains a non-CA certificate: " + cert.Subject})
+			findings = append(findings, genericCAFinding{Severity: "critical", Message: "bundle contains a non-CA certificate: " + cert.Subject})
 		}
 		if cert.DaysLeft < 0 {
 			findings = append(findings, genericCAFinding{Severity: "critical", Message: "CA certificate is expired: " + cert.Subject})

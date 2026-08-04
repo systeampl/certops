@@ -53,6 +53,24 @@ func cmdCAVaultAction(action string, args []string) {
 	if strings.TrimSpace(*baseURL) == "" {
 		fatal("--url is required")
 	}
+	if err := validateHTTPURL(*baseURL); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateAPIPath("mount", *mount); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateAPIPath("issuer", *issuer); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateTimeout(*timeout); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateFingerprint(*fingerprint); err != nil {
+		fatal(err.Error())
+	}
+	if strings.TrimSpace(*out) != "" && action == "health" {
+		fatal("--out is only supported for ca and info")
+	}
 	if strings.TrimSpace(*token) == "" {
 		*token = os.Getenv("VAULT_TOKEN")
 	}
@@ -71,11 +89,8 @@ func cmdCAVaultAction(action string, args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
-	if strings.TrimSpace(*out) != "" {
-		if action == "health" {
-			fatal("--out is only supported for ca and info")
-		}
-		if err := os.WriteFile(*out, caPEM, 0644); err != nil {
+	if strings.TrimSpace(*out) != "" && report.Status != "critical" {
+		if err := writeFileAtomic(*out, caPEM, 0644); err != nil {
 			fatal(err.Error())
 		}
 		report.CA.OutputPath = *out

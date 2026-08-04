@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -81,7 +82,13 @@ func expandFleetTargetHosts(cfg certopsConfig, target configTrustTarget) []fleet
 		if !ok {
 			return hosts
 		}
-		for hostName, host := range group.Hosts {
+		hostNames := make([]string, 0, len(group.Hosts))
+		for hostName := range group.Hosts {
+			hostNames = append(hostNames, hostName)
+		}
+		sort.Strings(hostNames)
+		for _, hostName := range hostNames {
+			host := group.Hosts[hostName]
 			hosts = append(hosts, fleetHost{Name: hostName, Group: target.Group, Address: host.Address, User: host.User, Port: host.Port, IdentityFile: host.IdentityFile, OS: host.OS})
 		}
 	}

@@ -38,12 +38,15 @@ func cmdCAGenericInfo(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
+	if err := validateFingerprint(*fingerprint); err != nil {
+		fatal(err.Error())
+	}
 	report, caPEM, err := runGenericCA(*caBundle, *rawURL, *fingerprint)
 	if err != nil {
 		fatal(err.Error())
 	}
-	if strings.TrimSpace(*out) != "" {
-		if err := os.WriteFile(*out, caPEM, 0644); err != nil {
+	if strings.TrimSpace(*out) != "" && report.Status != "critical" {
+		if err := writeFileAtomic(*out, caPEM, 0644); err != nil {
 			fatal(err.Error())
 		}
 		report.CA.OutputPath = *out

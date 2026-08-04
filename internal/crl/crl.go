@@ -26,6 +26,10 @@ type Options struct {
 	MaxAgeDays   int
 	Timeout      time.Duration
 	Insecure     bool
+	// IssuerCertificates are trusted candidates used to verify a CRL signature.
+	IssuerCertificates []*x509.Certificate
+	// RequireSignature fails the check when no trusted issuer validates the CRL.
+	RequireSignature bool
 }
 
 type Finding struct {
@@ -86,8 +90,8 @@ func Check(ctx context.Context, opts Options) (Report, *x509.RevocationList, err
 	}
 	populateReport(&report, list, der)
 	validateFreshness(&report, list, opts)
-	if strings.TrimSpace(opts.CABundle) != "" {
-		validateSignature(&report, list, opts.CABundle)
+	if strings.TrimSpace(opts.CABundle) != "" || opts.RequireSignature || len(opts.IssuerCertificates) > 0 {
+		validateSignature(&report, list, opts.CABundle, opts.IssuerCertificates)
 	}
 	report.Status = aggregate(report.Findings)
 	return report, list, nil
@@ -109,7 +113,12 @@ func Fetch(ctx context.Context, source string, timeout time.Duration, insecure b
 	source = strings.TrimSpace(source)
 	u, err := url.Parse(source)
 	if err == nil && (u.Scheme == "http" || u.Scheme == "https") {
-		client := &http.Client{Timeout: timeout}
+		client := &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 		if insecure {
 			transport := http.DefaultTransport.(*http.Transport).Clone()
 			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
@@ -124,7 +133,7 @@ func Fetch(ctx context.Context, source string, timeout time.Duration, insecure b
 			return nil, 0, err
 		}
 		defer resp.Body.Close()
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+		body, err := readLimited(resp.Body, 32<<20)
 		if err != nil {
 			return nil, resp.StatusCode, err
 		}
@@ -194,12 +203,16 @@ func validateFreshness(report *Report, list *x509.RevocationList, opts Options) 
 	}
 }
 
-func validateSignature(report *Report, list *x509.RevocationList, caBundle string) {
+func validateSignature(report *Report, list *x509.RevocationList, caBundle string, issuerCertificates []*x509.Certificate) {
 	report.SignatureChecked = true
-	certs, err := loadCerts(caBundle)
-	if err != nil {
-		add(report, "critical", "CRL signature could not be checked: "+err.Error())
-		return
+	certs := append([]*x509.Certificate(nil), issuerCertificates...)
+	if strings.TrimSpace(caBundle) != "" {
+		bundleCerts, err := loadCerts(caBundle)
+		if err != nil {
+			add(report, "critical", "CRL signature could not be checked: "+err.Error())
+			return
+		}
+		certs = append(certs, bundleCerts...)
 	}
 	var signatureErrs []string
 	for _, cert := range certs {
@@ -222,6 +235,17 @@ func validateSignature(report *Report, list *x509.RevocationList, caBundle strin
 		return
 	}
 	add(report, "critical", "CRL signature is invalid: "+strings.Join(signatureErrs, "; "))
+}
+
+func readLimited(r io.Reader, limit int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("response exceeds %d-byte limit", limit)
+	}
+	return data, nil
 }
 
 func loadCerts(path string) ([]*x509.Certificate, error) {
@@ -260,7 +284,7 @@ func issuerMatches(list *x509.RevocationList, cert *x509.Certificate) bool {
 
 func CertificateRevoked(cert *x509.Certificate, lists []*x509.RevocationList) (bool, string) {
 	for _, list := range lists {
-		if cert.Issuer.String() != list.Issuer.String() {
+		if !crlAppliesToCertificate(list, cert) {
 			continue
 		}
 		for _, entry := range list.RevokedCertificateEntries {
@@ -275,6 +299,13 @@ func CertificateRevoked(cert *x509.Certificate, lists []*x509.RevocationList) (b
 		}
 	}
 	return false, ""
+}
+
+func crlAppliesToCertificate(list *x509.RevocationList, cert *x509.Certificate) bool {
+	if len(list.AuthorityKeyId) > 0 && len(cert.AuthorityKeyId) > 0 {
+		return bytes.Equal(list.AuthorityKeyId, cert.AuthorityKeyId)
+	}
+	return cert.Issuer.String() == list.Issuer.String()
 }
 
 func add(report *Report, severity, message string) {

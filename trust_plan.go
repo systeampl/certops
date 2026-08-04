@@ -23,6 +23,7 @@ func buildTrustPlan(name string) trustPlan {
 				if err != nil {
 					return err
 				}
+				defer os.Remove(tmp)
 				return exec.Command("security", "add-trusted-cert", "-d", "-r", "trustRoot", "-k", path, tmp).Run()
 			},
 		}
@@ -35,7 +36,7 @@ func buildTrustPlan(name string) trustPlan {
 				InstallPath: path,
 				Commands:    []string{"install -m 0644 <bundle.pem> " + path, "update-ca-certificates"},
 				Install: func(bundle []byte) error {
-					if err := os.WriteFile(path, bundle, 0644); err != nil {
+					if err := writeFileAtomic(path, bundle, 0644); err != nil {
 						return err
 					}
 					return exec.Command("update-ca-certificates").Run()
@@ -50,7 +51,7 @@ func buildTrustPlan(name string) trustPlan {
 				InstallPath: path,
 				Commands:    []string{"install -m 0644 <bundle.pem> " + path, "update-ca-trust extract"},
 				Install: func(bundle []byte) error {
-					if err := os.WriteFile(path, bundle, 0644); err != nil {
+					if err := writeFileAtomic(path, bundle, 0644); err != nil {
 						return err
 					}
 					return exec.Command("update-ca-trust", "extract").Run()
@@ -67,6 +68,7 @@ func buildTrustPlan(name string) trustPlan {
 				if err != nil {
 					return err
 				}
+				defer os.Remove(tmp)
 				return exec.Command("certutil", "-addstore", "-f", "Root", tmp).Run()
 			},
 		}
@@ -131,9 +133,30 @@ func findTrustCertInSystemDirs(raw []byte) (bool, string) {
 }
 
 func writeTempBundle(name string, bundle []byte) (string, error) {
-	path := filepath.Join(os.TempDir(), name+".crt")
-	if err := os.WriteFile(path, bundle, 0600); err != nil {
+	file, err := os.CreateTemp("", sanitizeTrustName(name)+"-*.crt")
+	if err != nil {
 		return "", err
 	}
+	path := file.Name()
+	ok := false
+	defer func() {
+		_ = file.Close()
+		if !ok {
+			_ = os.Remove(path)
+		}
+	}()
+	if err := file.Chmod(0600); err != nil {
+		return "", err
+	}
+	if _, err := file.Write(bundle); err != nil {
+		return "", err
+	}
+	if err := file.Sync(); err != nil {
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		return "", err
+	}
+	ok = true
 	return path, nil
 }

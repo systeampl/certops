@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 )
@@ -114,12 +113,12 @@ func vaultGet(endpoint string, opts vaultOptions) (int, []byte, error) {
 	if strings.TrimSpace(opts.Namespace) != "" {
 		req.Header.Set("X-Vault-Namespace", opts.Namespace)
 	}
-	resp, err := (&http.Client{Timeout: opts.Timeout}).Do(req)
+	resp, err := providerHTTPClient(opts.Timeout).Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	body, err := readLimited(resp.Body, 2<<20)
 	if err != nil {
 		return resp.StatusCode, nil, err
 	}
@@ -144,7 +143,7 @@ func validateVaultCA(ca vaultCA) []vaultFinding {
 	}
 	for _, cert := range ca.Certs {
 		if !cert.IsCA {
-			findings = append(findings, vaultFinding{Severity: "warn", Message: "CA endpoint returned a non-CA certificate: " + cert.Subject})
+			findings = append(findings, vaultFinding{Severity: "critical", Message: "CA endpoint returned a non-CA certificate: " + cert.Subject})
 		}
 		if cert.DaysLeft < 0 {
 			findings = append(findings, vaultFinding{Severity: "critical", Message: "CA certificate is expired: " + cert.Subject})

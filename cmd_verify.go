@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"certops/internal/verify"
+	"github.com/pawel-cygal/certops/internal/verify"
 
 	"gopkg.in/yaml.v3"
 )
@@ -35,6 +35,9 @@ func cmdVerify(args []string) {
 	}
 	format, err := resolveOutput(*jsonOut, *yamlOut, *promOut)
 	if err != nil {
+		fatal(err.Error())
+	}
+	if err := validateFailOn(*failOn); err != nil {
 		fatal(err.Error())
 	}
 	watchCfg, err := normalizeWatchConfig(*watch, *untilOK, *interval, *watchTimeout, *maxIterations)

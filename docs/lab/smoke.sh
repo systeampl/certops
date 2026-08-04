@@ -8,6 +8,9 @@ ROOTS_DIR="/tmp/certops-lab-smoke-roots"
 
 cd "$REPO_DIR"
 
+certops version >/dev/null
+certops version --json >/dev/null
+
 smallstep_fp="$(grep -A4 'name: lab-smallstep' "$CONFIG" | awk '/fingerprint:/ {print $2}')"
 vault_fp="$(grep -A5 'name: lab-vault' "$CONFIG" | awk '/fingerprint:/ {print $2}')"
 cfssl_fp="$(grep -A4 'name: lab-cfssl' "$CONFIG" | awk '/fingerprint:/ {print $2}')"
@@ -78,6 +81,11 @@ certops check https://127.0.0.1:9443 --ca-bundle "$ROOTS_DIR/lab-vault.pem" --cr
 certops check https://127.0.0.1:9443 --ca-bundle "$ROOTS_DIR/lab-vault.pem" --critical-days -1 --warn-days -1 --yaml >/dev/null
 certops check https://127.0.0.1:9443 --ca-bundle "$ROOTS_DIR/lab-vault.pem" --critical-days -1 --warn-days -1 --prom >/dev/null
 certops check https://127.0.0.1:9443 --ca-bundle "$ROOTS_DIR/lab-vault.pem" --critical-days -1 --warn-days -1 --html /tmp/certops-smoke-check.html >/dev/null
+certops check localhost --server-name localhost --connect 127.0.0.1:9443 --ca-bundle "$ROOTS_DIR/lab-vault.pem" --critical-days -1 --warn-days -1 >/dev/null
+certops scan 127.0.0.1:9443 --concurrency 2 --ca-bundle "$ROOTS_DIR/lab-vault.pem" --critical-days -1 --warn-days -1 --json >/dev/null
+
+printf 'defaults:\n  warn_days: -1\n  critical_days: -1\n  ca_bundle: %s\ntargets:\n  - name: vault-lab\n    host: localhost\n    connect: 127.0.0.1:9443\n' "$ROOTS_DIR/lab-vault.pem" > /tmp/certops-smoke-verify.yaml
+certops verify -f /tmp/certops-smoke-verify.yaml --json >/dev/null
 
 certops fleet trust plan -f "$CONFIG" --limit target-linux >/dev/null
 certops fleet trust plan -f "$CONFIG" --limit target-linux --html /tmp/certops-smoke-fleet-plan.html >/dev/null

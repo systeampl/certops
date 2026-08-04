@@ -8,8 +8,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -36,6 +40,49 @@ func TestRunValidatesFreshSignedCRL(t *testing.T) {
 	}
 	if report.RevokedCertificates != 1 {
 		t.Fatalf("revoked certs = %d, want 1", report.RevokedCertificates)
+	}
+}
+
+func TestCheckRequiresTrustedSignatureWhenRequested(t *testing.T) {
+	ca, key, _ := testCA(t)
+	crlDER := testCRL(t, ca, key, time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour), []*big.Int{big.NewInt(99)})
+	path := filepath.Join(t.TempDir(), "ca.crl")
+	if err := os.WriteFile(path, crlDER, 0600); err != nil {
+		t.Fatal(err)
+	}
+	report, _, err := Check(context.Background(), Options{Source: path, RequireSignature: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != "critical" || !report.SignatureChecked || report.SignatureValid {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+}
+
+func TestFetchRefusesRedirects(t *testing.T) {
+	var destinationCalled atomic.Bool
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		destinationCalled.Store(true)
+		_, _ = w.Write([]byte("CRL"))
+	}))
+	defer destination.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL, http.StatusFound)
+	}))
+	defer source.Close()
+
+	_, status, err := Fetch(context.Background(), source.URL, time.Second, false)
+	if err == nil || status != http.StatusFound {
+		t.Fatalf("status/error = %d/%v", status, err)
+	}
+	if destinationCalled.Load() {
+		t.Fatal("redirect destination was called")
+	}
+}
+
+func TestReadLimitedRejectsOversizedCRL(t *testing.T) {
+	if _, err := readLimited(strings.NewReader("12345"), 4); err == nil {
+		t.Fatal("oversized response unexpectedly succeeded")
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	crlcheck "certops/internal/crl"
+	crlcheck "github.com/pawel-cygal/certops/internal/crl"
 )
 
 func cmdCRL(args []string) {
@@ -46,19 +46,35 @@ func cmdCRLCheck(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
+	if err := validateFailOn(*failOn); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateThresholds(*warnDays, *criticalDays); err != nil {
+		fatal(err.Error())
+	}
+	if *maxAgeDays < 0 {
+		fatal("--max-age-days cannot be negative")
+	}
+	if err := validateTimeout(*timeout); err != nil {
+		fatal(err.Error())
+	}
+	if strings.TrimSpace(*caBundle) == "" {
+		fatal("--ca-bundle is required to verify the CRL signature")
+	}
 	source, err := crlSource(*file, *url)
 	if err != nil {
 		fatal(err.Error())
 	}
 	report := crlcheck.Run(context.Background(), crlcheck.Options{
-		Name:         *name,
-		Source:       source,
-		CABundle:     *caBundle,
-		WarnDays:     *warnDays,
-		CriticalDays: *criticalDays,
-		MaxAgeDays:   *maxAgeDays,
-		Timeout:      *timeout,
-		Insecure:     *insecure,
+		Name:             *name,
+		Source:           source,
+		CABundle:         *caBundle,
+		WarnDays:         *warnDays,
+		CriticalDays:     *criticalDays,
+		MaxAgeDays:       *maxAgeDays,
+		Timeout:          *timeout,
+		Insecure:         *insecure,
+		RequireSignature: true,
 	})
 	if err := exportCRLReportsOTEL(*otelEndpoint, []crlcheck.Report{report}); err != nil {
 		fatal(err.Error())

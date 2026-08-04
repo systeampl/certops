@@ -73,10 +73,12 @@ type configService struct {
 	URL              string   `json:"url,omitempty" yaml:"url,omitempty"`
 	Host             string   `json:"host,omitempty" yaml:"host,omitempty"`
 	Port             string   `json:"port,omitempty" yaml:"port,omitempty"`
+	ServerName       string   `json:"server_name,omitempty" yaml:"server_name,omitempty"`
 	CA               string   `json:"ca,omitempty" yaml:"ca,omitempty"`
 	ExpectedNames    []string `json:"expected_names,omitempty" yaml:"expected_names,omitempty"`
 	AllowedIssuers   []string `json:"allowed_issuers,omitempty" yaml:"allowed_issuers,omitempty"`
 	CRLs             []string `json:"crls,omitempty" yaml:"crls,omitempty"`
+	AutoCRL          bool     `json:"auto_crl,omitempty" yaml:"auto_crl,omitempty"`
 	MinDaysRemaining int      `json:"min_days_remaining,omitempty" yaml:"min_days_remaining,omitempty"`
 	RequireTLS13     bool     `json:"require_tls13,omitempty" yaml:"require_tls13,omitempty"`
 	RequireHSTS      bool     `json:"require_hsts,omitempty" yaml:"require_hsts,omitempty"`

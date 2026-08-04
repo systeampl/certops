@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -39,9 +41,52 @@ func runFleetTrust(action, file string, cfg certopsConfig, limit string) fleetTr
 		item = runFleetTrustItem(action, target.Host, target.CAName, pemData, item)
 		report.Items = append(report.Items, item)
 	}
+	if action == "verify" && !cfg.Policy.AllowUnmanagedRoots {
+		report.Items = append(report.Items, verifyNoUnmanagedRoots(targets)...)
+	}
 	report.Summary = summarizeFleetTrust(report.Items, report.Errors)
 	report.Status = fleetStatus(report.Summary)
 	return report
+}
+
+func verifyNoUnmanagedRoots(targets []fleetTrustTarget) []fleetTrustItem {
+	type hostState struct {
+		host     fleetHost
+		required map[string]bool
+	}
+	byHost := map[string]*hostState{}
+	for _, target := range targets {
+		state := byHost[target.Host.Name]
+		if state == nil {
+			state = &hostState{host: target.Host, required: map[string]bool{}}
+			byHost[target.Host.Name] = state
+		}
+		state.required[filepath.Base(remoteTrustPath(target.CAName))] = true
+	}
+	names := make([]string, 0, len(byHost))
+	for name := range byHost {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var items []fleetTrustItem
+	for _, name := range names {
+		state := byHost[name]
+		if !strings.EqualFold(strings.TrimSpace(state.host.OS), "linux") {
+			continue
+		}
+		paths, err := remoteManagedLinuxTrustPaths(state.host)
+		if err != nil {
+			items = append(items, fleetTrustItem{Host: name, Address: state.host.Address, User: state.host.User, Port: state.host.Port, OS: state.host.OS, CA: "*", Status: "critical", Message: "could not inventory Certops-managed roots: " + err.Error()})
+			continue
+		}
+		for _, path := range paths {
+			if state.required[filepath.Base(path)] {
+				continue
+			}
+			items = append(items, fleetTrustItem{Host: name, Address: state.host.Address, User: state.host.User, Port: state.host.Port, OS: state.host.OS, CA: "unmanaged", Path: path, Status: "warn", Message: "Certops-managed root is not declared by this host's trust policy"})
+		}
+	}
+	return items
 }
 
 func runFleetTrustItem(action string, host fleetHost, caName string, pemData []byte, item fleetTrustItem) fleetTrustItem {
@@ -139,6 +184,17 @@ func remoteRemoveLinuxTrust(host fleetHost, caName string) error {
 	remote := fmt.Sprintf("sudo rm -f %s && sudo update-ca-certificates >/dev/null", shellQuote(path))
 	_, err := fleetSSH(host, remote, nil)
 	return err
+}
+
+func remoteManagedLinuxTrustPaths(host fleetHost) ([]string, error) {
+	const command = "find /usr/local/share/ca-certificates -maxdepth 1 -type f -name 'certops-*.crt' -print"
+	out, err := fleetSSH(host, command, nil)
+	if err != nil {
+		return nil, err
+	}
+	paths := strings.Fields(string(out))
+	sort.Strings(paths)
+	return paths, nil
 }
 
 func summarizeFleetTrust(items []fleetTrustItem, failures []fleetTrustFailure) fleetTrustSummary {

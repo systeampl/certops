@@ -48,6 +48,18 @@ func cmdCACFSSLAction(action string, args []string) {
 	if strings.TrimSpace(*baseURL) == "" {
 		fatal("--url is required")
 	}
+	if err := validateHTTPURL(*baseURL); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateTimeout(*timeout); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateFingerprint(*fingerprint); err != nil {
+		fatal(err.Error())
+	}
+	if strings.TrimSpace(*out) != "" && action == "health" {
+		fatal("--out is only supported for info")
+	}
 
 	opts := cfsslOptions{
 		BaseURL:     *baseURL,
@@ -60,11 +72,8 @@ func cmdCACFSSLAction(action string, args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
-	if strings.TrimSpace(*out) != "" {
-		if action == "health" {
-			fatal("--out is only supported for info")
-		}
-		if err := os.WriteFile(*out, caPEM, 0644); err != nil {
+	if strings.TrimSpace(*out) != "" && report.Status != "critical" {
+		if err := writeFileAtomic(*out, caPEM, 0644); err != nil {
 			fatal(err.Error())
 		}
 		report.CA.OutputPath = *out

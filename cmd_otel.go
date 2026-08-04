@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 	"time"
 
-	checker "certops/internal/check"
-	crlcheck "certops/internal/crl"
-	"certops/internal/verify"
+	checker "github.com/pawel-cygal/certops/internal/check"
+	crlcheck "github.com/pawel-cygal/certops/internal/crl"
+	"github.com/pawel-cygal/certops/internal/verify"
 )
 
 type otelPayload struct {
@@ -83,7 +85,8 @@ func exportReportsOTEL(endpoint string, reports []checker.Report) error {
 			otelMetricInt("certops.certificate.revocation_checked", "Certificate CRL revocation check status", "", base, boolInt(report.Revocation.Checked), now),
 			otelMetricInt("certops.certificate.revoked", "Certificate revocation status", "", base, boolInt(report.Revocation.Revoked), now),
 			otelMetricInt("certops.tls.ocsp_stapling", "OCSP stapling status", "", base, boolInt(report.TLS.OCSPStapling), now),
-			otelMetricInt("certops.https.hsts", "HSTS header status", "", base, boolInt(strings.TrimSpace(report.HTTPS.HSTS) != ""), now),
+			otelMetricInt("certops.tls.ocsp_staple_valid", "OCSP staple validation status", "", base, boolInt(report.TLS.OCSPStatus == "good"), now),
+			otelMetricInt("certops.https.hsts", "HSTS header status", "", base, boolInt(report.HTTPS.HSTSEnabled), now),
 		)
 		for _, version := range []string{"TLS1.0", "TLS1.1", "TLS1.2", "TLS1.3"} {
 			metrics = append(metrics, otelMetricInt("certops.tls.version_supported", "TLS version support status", "", map[string]string{
@@ -165,11 +168,16 @@ func otelAttributes(labels map[string]string) []otelAttribute {
 		}
 		out = append(out, otelAttribute{Key: key, Value: otelValue{StringValue: value}})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
 }
 
 func postOTLP(endpoint, service string, metrics []otelMetric) error {
 	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	parsed, err := url.Parse(endpoint)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil {
+		return fmt.Errorf("otel endpoint must be an http(s) URL with a hostname and no userinfo")
+	}
 	if !strings.HasSuffix(endpoint, "/v1/metrics") {
 		endpoint += "/v1/metrics"
 	}
@@ -191,7 +199,7 @@ func postOTLP(endpoint, service string, metrics []otelMetric) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	resp, err := providerHTTPClient(10 * time.Second).Do(req)
 	if err != nil {
 		return err
 	}

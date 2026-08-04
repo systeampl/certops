@@ -4,19 +4,20 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	checker "certops/internal/check"
+	checker "github.com/pawel-cygal/certops/internal/check"
 )
 
 func cmdCheck(args []string) {
-	args = normalizeFlagArgs(args, map[string]bool{"--warn-days": true, "--critical-days": true, "--ca-bundle": true, "--crl": true, "--crl-ca-bundle": true, "--crl-warn-days": true, "--crl-critical-days": true, "--crl-max-age-days": true, "--fail-on": true, "--timeout": true, "--html": true, "--otel-endpoint": true, "--interval": true, "--watch-timeout": true, "--max-iterations": true})
+	args = normalizeFlagArgs(args, map[string]bool{"--warn-days": true, "--critical-days": true, "--ca-bundle": true, "--crl": true, "--crl-ca-bundle": true, "--crl-warn-days": true, "--crl-critical-days": true, "--crl-max-age-days": true, "--fail-on": true, "--timeout": true, "--html": true, "--otel-endpoint": true, "--interval": true, "--watch-timeout": true, "--max-iterations": true, "--server-name": true, "--connect": true})
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
 	jsonOut := fs.Bool("json", false, "emit JSON")
-	yamlOut := fs.Bool("yaml", false, "emit YAML-like output")
+	yamlOut := fs.Bool("yaml", false, "emit YAML")
 	promOut := fs.Bool("prom", false, "emit Prometheus text output")
 	htmlOut := fs.String("html", "", "write HTML report to path")
 	otelEndpoint := fs.String("otel-endpoint", "", "export OTLP/HTTP metrics to endpoint, for example http://localhost:4318")
@@ -29,6 +30,10 @@ func cmdCheck(args []string) {
 	crlWarnDays := fs.Int("crl-warn-days", 3, "warning threshold for CRL nextUpdate")
 	crlCriticalDays := fs.Int("crl-critical-days", 1, "critical threshold for CRL nextUpdate")
 	crlMaxAgeDays := fs.Int("crl-max-age-days", 0, "warning threshold for CRL thisUpdate age (0 = disabled)")
+	crlInsecure := fs.Bool("crl-insecure", false, "skip TLS verification when fetching CRLs; signatures are still required")
+	autoCRL := fs.Bool("auto-crl", false, "fetch and verify CRLs advertised by the leaf certificate")
+	serverName := fs.String("server-name", "", "override TLS SNI and hostname verification name")
+	connect := fs.String("connect", "", "override TCP destination as host[:port]")
 	failOn := fs.String("fail-on", "critical", "exit non-zero on warn or critical")
 	timeout := fs.Duration("timeout", 10*time.Second, "network timeout")
 	watch := fs.Bool("watch", false, "rerun the check until interrupted")
@@ -43,6 +48,21 @@ func cmdCheck(args []string) {
 	}
 	format, err := resolveOutput(*jsonOut, *yamlOut, *promOut)
 	if err != nil {
+		fatal(err.Error())
+	}
+	if err := validateFailOn(*failOn); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateThresholds(*warnDays, *criticalDays); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateThresholds(*crlWarnDays, *crlCriticalDays); err != nil {
+		fatal("CRL " + err.Error())
+	}
+	if *crlMaxAgeDays < 0 {
+		fatal("--crl-max-age-days cannot be negative")
+	}
+	if err := validateTimeout(*timeout); err != nil {
 		fatal(err.Error())
 	}
 	watchCfg, err := normalizeWatchConfig(*watch, *untilOK, *interval, *watchTimeout, *maxIterations)
@@ -62,19 +82,40 @@ func cmdCheck(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
+	if strings.TrimSpace(*serverName) != "" {
+		host, err = normalizeServerName(*serverName)
+		if err != nil {
+			fatal(err.Error())
+		}
+	}
+	if strings.TrimSpace(*connect) != "" {
+		_, port, _ := net.SplitHostPort(address)
+		address, err = normalizeConnect(*connect, port)
+		if err != nil {
+			fatal(err.Error())
+		}
+	}
 
 	runOnce := func() checker.Report {
 		crlBundle := defaultCRLCABundle(*crlCABundle, *caBundle)
+		insecureSources := map[string]bool{}
+		if *crlInsecure {
+			for _, source := range crls {
+				insecureSources[source] = true
+			}
+		}
 		return checker.Run(context.Background(), host, address, checker.Options{
-			WarnDays:        *warnDays,
-			CriticalDays:    *criticalDays,
-			Timeout:         *timeout,
-			CABundle:        *caBundle,
-			CRLSources:      []string(crls),
-			CRLCABundle:     crlBundle,
-			CRLWarnDays:     *crlWarnDays,
-			CRLCriticalDays: *crlCriticalDays,
-			CRLMaxAgeDays:   *crlMaxAgeDays,
+			WarnDays:           *warnDays,
+			CriticalDays:       *criticalDays,
+			Timeout:            *timeout,
+			CABundle:           *caBundle,
+			CRLSources:         []string(crls),
+			CRLCABundle:        crlBundle,
+			CRLWarnDays:        *crlWarnDays,
+			CRLCriticalDays:    *crlCriticalDays,
+			CRLMaxAgeDays:      *crlMaxAgeDays,
+			AutoCRL:            *autoCRL,
+			CRLInsecureSources: insecureSources,
 		})
 	}
 	if watchCfg.Enabled {
@@ -138,13 +179,16 @@ func printRawReport(report checker.Report) {
 		{"certificate", "chain", statusColor(okWord(report.Certificate.Trusted, "trusted", "untrusted")), statusColor(okCritical(report.Certificate.Trusted))},
 		{"certificate", "hostname", statusColor(okWord(report.Certificate.MatchesHost, "matches", "mismatch")), statusColor(okCritical(report.Certificate.MatchesHost))},
 		{"certificate", "sans", compactList(report.Certificate.DNSNames, 3), "info"},
+		{"certificate", "public_key", certificateKeyCell(report), certificateCryptoStatus(report)},
+		{"certificate", "signature", emptyDash(report.Certificate.SignatureAlgorithm), certificateCryptoStatus(report)},
+		{"certificate", "chain_length", strconv.Itoa(len(report.Chain)), "info"},
 		{"tls", "negotiated", emptyDash(report.TLS.NegotiatedVersion) + " / " + emptyDash(report.TLS.CipherSuite), "info"},
 		{"tls", "versions", strings.Join(report.TLS.SupportedVersions, ", "), tlsVersionsStatus(report)},
 		{"tls", "alpn", emptyDash(report.TLS.ALPN), "info"},
-		{"tls", "ocsp_stapling", statusColor(yesNo(report.TLS.OCSPStapling)), statusColor(warnIfFalse(report.TLS.OCSPStapling))},
+		{"tls", "ocsp_stapling", ocspCell(report), ocspStatus(report)},
 		{"tls", "handshake_ms", strconv.FormatInt(report.TLS.HandshakeMS, 10), "info"},
 		{"https", "http_redirect", statusColor(httpRedirectCell(report)), statusColor(httpRedirectStatus(report))},
-		{"https", "hsts", hstsCell(report.HTTPS.HSTS), statusColor(warnIfFalse(strings.TrimSpace(report.HTTPS.HSTS) != ""))},
+		{"https", "hsts", hstsCell(report.HTTPS.HSTS), statusColor(warnIfFalse(report.HTTPS.HSTSEnabled))},
 		{"revocation", "crl", revocationCell(report), revocationStatus(report)},
 	}
 	renderTable([]string{"scope", "check", "value", "status"}, rows)
@@ -152,6 +196,48 @@ func printRawReport(report checker.Report) {
 	fmt.Println()
 	renderFindings(report.Findings)
 	fmt.Printf("\nsummary: status=%s, findings=%d\n", statusColor(report.Status), len(report.Findings))
+}
+
+func certificateKeyCell(report checker.Report) string {
+	if report.Certificate.PublicKeyAlgorithm == "" {
+		return "-"
+	}
+	if report.Certificate.PublicKeyBits == 0 {
+		return report.Certificate.PublicKeyAlgorithm
+	}
+	return fmt.Sprintf("%s %d-bit", report.Certificate.PublicKeyAlgorithm, report.Certificate.PublicKeyBits)
+}
+
+func certificateCryptoStatus(report checker.Report) string {
+	for _, finding := range report.Findings {
+		if finding.Scope == "certificate" && (strings.Contains(finding.Message, "public key") || strings.Contains(finding.Message, "signature algorithm")) {
+			return statusColor(finding.Severity)
+		}
+	}
+	return statusColor("ok")
+}
+
+func ocspCell(report checker.Report) string {
+	if !report.TLS.OCSPStapling {
+		return statusColor("missing")
+	}
+	if report.TLS.OCSPStatus == "" {
+		return statusColor("present")
+	}
+	return statusColor(report.TLS.OCSPStatus)
+}
+
+func ocspStatus(report checker.Report) string {
+	switch report.TLS.OCSPStatus {
+	case "good":
+		return statusColor("ok")
+	case "revoked", "invalid":
+		return statusColor("critical")
+	case "unknown", "unverified":
+		return statusColor("warn")
+	default:
+		return statusColor(warnIfFalse(report.TLS.OCSPStapling))
+	}
 }
 
 func renderFindings(findings []checker.Finding) {

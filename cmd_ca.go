@@ -125,7 +125,7 @@ func fetchConfiguredCA(ca configCA, outDir string) caFetchResult {
 		result.Error = err.Error()
 		return result
 	}
-	if err := os.WriteFile(path, pemData, 0644); err != nil {
+	if err := writeFileAtomic(path, pemData, 0644); err != nil {
 		result.Status = "critical"
 		result.Error = err.Error()
 		return result
@@ -138,9 +138,12 @@ func fetchConfiguredCA(ca configCA, outDir string) caFetchResult {
 func configuredCAPEM(ca configCA) ([]byte, int, error) {
 	switch strings.ToLower(strings.TrimSpace(ca.Provider)) {
 	case "smallstep":
-		_, pemData, err := runSmallstep("roots", ca.URL, ca.Fingerprint, 10*time.Second, ca.Insecure)
+		report, pemData, err := runSmallstep("roots", ca.URL, ca.Fingerprint, 10*time.Second, ca.Insecure)
 		if err != nil {
 			return nil, 0, err
+		}
+		if report.Status == "critical" {
+			return nil, 0, fmt.Errorf("Smallstep root validation failed: %s", firstSmallstepFinding(report))
 		}
 		certs, _, err := parseTrustCerts(pemData)
 		return pemData, len(certs), err
@@ -153,9 +156,12 @@ func configuredCAPEM(ca configCA) ([]byte, int, error) {
 			Token:       os.Getenv("VAULT_TOKEN"),
 			Timeout:     10 * time.Second,
 		}
-		_, pemData, err := runVault("ca", opts)
+		report, pemData, err := runVault("ca", opts)
 		if err != nil {
 			return nil, 0, err
+		}
+		if report.Status == "critical" {
+			return nil, 0, fmt.Errorf("Vault CA validation failed: %s", firstVaultFinding(report))
 		}
 		certs, _, err := parseTrustCerts(pemData)
 		return pemData, len(certs), err
@@ -167,9 +173,12 @@ func configuredCAPEM(ca configCA) ([]byte, int, error) {
 			Fingerprint: ca.Fingerprint,
 			Timeout:     10 * time.Second,
 		}
-		_, pemData, err := runCFSSL("info", opts)
+		report, pemData, err := runCFSSL("info", opts)
 		if err != nil {
 			return nil, 0, err
+		}
+		if report.Status == "critical" {
+			return nil, 0, fmt.Errorf("CFSSL CA validation failed: %s", firstCFSSLFinding(report))
 		}
 		certs, _, err := parseTrustCerts(pemData)
 		return pemData, len(certs), err
@@ -185,6 +194,27 @@ func configuredCAPEM(ca configCA) ([]byte, int, error) {
 	default:
 		return nil, 0, fmt.Errorf("unsupported provider: %s", ca.Provider)
 	}
+}
+
+func firstSmallstepFinding(report smallstepReport) string {
+	if len(report.Findings) > 0 {
+		return report.Findings[0].Message
+	}
+	return report.Status
+}
+
+func firstVaultFinding(report vaultReport) string {
+	if len(report.Findings) > 0 {
+		return report.Findings[0].Message
+	}
+	return report.Status
+}
+
+func firstCFSSLFinding(report cfsslReport) string {
+	if len(report.Findings) > 0 {
+		return report.Findings[0].Message
+	}
+	return report.Status
 }
 
 func printCARows(rows []caConfigRow, format outputFormat) {
@@ -273,16 +303,28 @@ func cmdCASmallstepAction(action string, args []string) {
 	if strings.TrimSpace(*baseURL) == "" {
 		fatal("--url is required")
 	}
+	if err := validateHTTPURL(*baseURL); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateTimeout(*timeout); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateFingerprint(*fingerprint); err != nil {
+		fatal(err.Error())
+	}
+	if *insecure && action != "health" && strings.TrimSpace(*fingerprint) == "" {
+		fatal("--fingerprint is required with --insecure when fetching CA material")
+	}
+	if strings.TrimSpace(*out) != "" && action == "health" {
+		fatal("--out is only supported for roots and info")
+	}
 
 	report, rootsPEM, err := runSmallstep(action, *baseURL, *fingerprint, *timeout, *insecure)
 	if err != nil {
 		fatal(err.Error())
 	}
-	if strings.TrimSpace(*out) != "" {
-		if action == "health" {
-			fatal("--out is only supported for roots and info")
-		}
-		if err := os.WriteFile(*out, rootsPEM, 0644); err != nil {
+	if strings.TrimSpace(*out) != "" && report.Status != "critical" {
+		if err := writeFileAtomic(*out, rootsPEM, 0644); err != nil {
 			fatal(err.Error())
 		}
 		report.Roots.OutputPath = *out

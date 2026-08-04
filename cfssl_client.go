@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type cfsslAPIResponse struct {
@@ -116,12 +116,12 @@ func cfsslGet(endpoint string, opts cfsslOptions) (int, []byte, error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	resp, err := (&http.Client{Timeout: opts.Timeout}).Do(req)
+	resp, err := providerHTTPClient(opts.Timeout).Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	body, err := readLimited(resp.Body, 2<<20)
 	if err != nil {
 		return resp.StatusCode, nil, err
 	}
@@ -138,16 +138,25 @@ func cfsslPostJSON(endpoint string, payload any, opts cfsslOptions) (int, []byte
 		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: opts.Timeout}).Do(req)
+	resp, err := providerHTTPClient(opts.Timeout).Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	body, err := readLimited(resp.Body, 2<<20)
 	if err != nil {
 		return resp.StatusCode, nil, err
 	}
 	return resp.StatusCode, body, nil
+}
+
+func providerHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 func cfsslSuccessBody(body []byte) bool {
@@ -180,7 +189,7 @@ func validateCFSSLCA(ca cfsslCA) []cfsslFinding {
 	}
 	for _, cert := range ca.Certs {
 		if !cert.IsCA {
-			findings = append(findings, cfsslFinding{Severity: "warn", Message: "CFSSL info returned a non-CA certificate: " + cert.Subject})
+			findings = append(findings, cfsslFinding{Severity: "critical", Message: "CFSSL info returned a non-CA certificate: " + cert.Subject})
 		}
 		if cert.DaysLeft < 0 {
 			findings = append(findings, cfsslFinding{Severity: "critical", Message: "CA certificate is expired: " + cert.Subject})

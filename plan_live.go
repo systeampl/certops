@@ -3,14 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	checker "certops/internal/check"
-	crlcheck "certops/internal/crl"
+	checker "github.com/pawel-cygal/certops/internal/check"
+	crlcheck "github.com/pawel-cygal/certops/internal/crl"
 )
 
 func livePlanItems(cfg certopsConfig, opts planOptions) []planItem {
@@ -80,7 +79,7 @@ func liveCAPlanItem(ca configCA, rootDir string, cfg certopsConfig) (planItem, s
 		return item, ""
 	}
 	path := filepath.Join(rootDir, sanitizeTrustName(ca.Name)+".pem")
-	if err := os.WriteFile(path, pemData, 0644); err != nil {
+	if err := writeFileAtomic(path, pemData, 0644); err != nil {
 		item.Status = "critical"
 		item.Change = "CA live check could not write temporary bundle"
 		item.Actual = err.Error()
@@ -106,14 +105,7 @@ func liveCAPlanItem(ca configCA, rootDir string, cfg certopsConfig) (planItem, s
 func liveServicePlanItem(service configService, cfg certopsConfig, rootPaths map[string]string, timeout time.Duration) planItem {
 	targetName := servicePlanTarget(service)
 	item := planItem{Action: "verify", Scope: "service-live", Target: targetName, Status: "ok"}
-	target, err := serviceCheckTarget(service, cfg)
-	if err != nil {
-		item.Status = "critical"
-		item.Change = "service live check target is invalid"
-		item.Actual = err.Error()
-		return item
-	}
-	host, address, err := normalizeTarget(target)
+	host, address, err := serviceCheckEndpoint(service, cfg)
 	if err != nil {
 		item.Status = "critical"
 		item.Change = "service live check target is invalid"
@@ -121,16 +113,22 @@ func liveServicePlanItem(service configService, cfg certopsConfig, rootPaths map
 		return item
 	}
 	report := checker.Run(context.Background(), host, address, checker.Options{
-		WarnDays:      policyWarnDays(cfg),
-		CriticalDays:  14,
-		Timeout:       timeout,
-		CABundle:      rootPaths[service.CA],
-		CRLSources:    serviceCRLSources(service, cfg),
-		CRLCABundle:   rootPaths[service.CA],
-		CRLWarnDays:   policyCRLWarnDays(cfg),
-		CRLMaxAgeDays: cfg.Policy.MaxCRLAgeDays,
+		WarnDays:           policyWarnDays(cfg),
+		CriticalDays:       14,
+		Timeout:            timeout,
+		CABundle:           rootPaths[service.CA],
+		CRLSources:         serviceCRLSources(service, cfg),
+		CRLCABundle:        rootPaths[service.CA],
+		CRLWarnDays:        policyCRLWarnDays(cfg),
+		CRLMaxAgeDays:      cfg.Policy.MaxCRLAgeDays,
+		AutoCRL:            service.AutoCRL,
+		CRLInsecureSources: serviceCRLInsecureSources(service, cfg),
 	})
-	policyFindings := servicePolicyFindings(service, report)
+	effectiveService := service
+	if effectiveService.MinDaysRemaining == 0 {
+		effectiveService.MinDaysRemaining = cfg.Policy.MinLeafDaysRemaining
+	}
+	policyFindings := servicePolicyFindings(effectiveService, report)
 	item.Status = planStatusFromCheckStatus(statusWithPolicyFindings(report.Status, policyFindings))
 	item.Change = fmt.Sprintf("service live check %s", item.Status)
 	item.Actual = liveServiceActual(report, policyFindings)
@@ -160,6 +158,20 @@ func serviceCRLSources(service configService, cfg certopsConfig) []string {
 	return out
 }
 
+func serviceCRLInsecureSources(service configService, cfg certopsConfig) map[string]bool {
+	byName := map[string]configCRL{}
+	for _, config := range cfg.CRLs {
+		byName[config.Name] = config
+	}
+	out := map[string]bool{}
+	for _, name := range service.CRLs {
+		if config, ok := byName[name]; ok && config.Insecure {
+			out[configuredCRLSource(config)] = true
+		}
+	}
+	return out
+}
+
 func servicePlanTarget(service configService) string {
 	if service.Name != "" {
 		return service.Name
@@ -170,21 +182,44 @@ func servicePlanTarget(service configService) string {
 	return service.Host
 }
 
-func serviceCheckTarget(service configService, cfg certopsConfig) (string, error) {
+func serviceCheckEndpoint(service configService, cfg certopsConfig) (string, string, error) {
 	if strings.TrimSpace(service.URL) != "" {
-		return service.URL, nil
+		host, address, err := normalizeTarget(service.URL)
+		if err != nil {
+			return "", "", err
+		}
+		if strings.TrimSpace(service.ServerName) != "" {
+			host, err = normalizeServerName(service.ServerName)
+			if err != nil {
+				return "", "", err
+			}
+		}
+		return host, address, nil
 	}
 	if strings.TrimSpace(service.Host) == "" {
-		return "", fmt.Errorf("service has no url or host")
+		return "", "", fmt.Errorf("service has no url or host")
 	}
-	host := service.Host
+	identity := service.Host
+	connectHost := service.Host
 	if inventoryHost, ok := findInventoryHost(cfg, service.Host); ok {
-		host = inventoryHost.Address
+		connectHost = inventoryHost.Address
 	}
-	if service.Port != "" {
-		return net.JoinHostPort(host, service.Port), nil
+	port := service.Port
+	if port == "" {
+		port = "443"
 	}
-	return host, nil
+	address, err := normalizeConnect(connectHost, port)
+	if err != nil {
+		return "", "", err
+	}
+	if strings.TrimSpace(service.ServerName) != "" {
+		identity = service.ServerName
+	}
+	identity, err = normalizeServerName(identity)
+	if err != nil {
+		return "", "", err
+	}
+	return identity, address, nil
 }
 
 func findInventoryHost(cfg certopsConfig, name string) (configHost, bool) {
@@ -312,7 +347,7 @@ func servicePolicyFindings(service configService, report checker.Report) []check
 	if service.RequireTLS13 && !hasString(report.TLS.SupportedVersions, "TLS1.3") {
 		findings = append(findings, checker.Finding{Severity: "critical", Scope: "policy", Message: "TLS 1.3 is required but not supported"})
 	}
-	if service.RequireHSTS && strings.TrimSpace(report.HTTPS.HSTS) == "" {
+	if service.RequireHSTS && !report.HTTPS.HSTSEnabled {
 		findings = append(findings, checker.Finding{Severity: "critical", Scope: "policy", Message: "HSTS is required but missing"})
 	}
 	if service.ForbidTLS10 && hasString(report.TLS.SupportedVersions, "TLS1.0") {

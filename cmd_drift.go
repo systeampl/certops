@@ -32,6 +32,12 @@ func cmdDrift(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
+	if err := validateFailOn(*failOn); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateTimeout(*timeout); err != nil {
+		fatal(err.Error())
+	}
 	cfg, err := loadConfig(*file)
 	if err != nil {
 		fatal(err.Error())

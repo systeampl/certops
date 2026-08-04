@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -32,6 +31,12 @@ func loadTrustSource(caBundle, rawURL, smallstepURL, fingerprint string) (trustS
 	if strings.TrimSpace(fingerprint) == "" {
 		return trustSource{}, fmt.Errorf("--fingerprint is required when fetching CA material from URL")
 	}
+	if err := validateFingerprint(fingerprint); err != nil {
+		return trustSource{}, err
+	}
+	if err := validateHTTPURL(rawURL); err != nil {
+		return trustSource{}, err
+	}
 	data, err := fetchPEM(rawURL)
 	if err != nil {
 		return trustSource{}, err
@@ -51,7 +56,7 @@ func fetchPEM(rawURL string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	resp, err := providerHTTPClient(10 * time.Second).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +64,7 @@ func fetchPEM(rawURL string) ([]byte, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("fetch failed: %s", resp.Status)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	data, err := readLimited(resp.Body, 2<<20)
 	if err != nil {
 		return nil, err
 	}

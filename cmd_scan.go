@@ -6,17 +6,18 @@ import (
 	"flag"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
-	checker "certops/internal/check"
+	checker "github.com/pawel-cygal/certops/internal/check"
 )
 
 func cmdScan(args []string) {
-	args = normalizeFlagArgs(args, map[string]bool{"--input": true, "--warn-days": true, "--critical-days": true, "--ca-bundle": true, "--crl": true, "--crl-ca-bundle": true, "--crl-warn-days": true, "--crl-critical-days": true, "--crl-max-age-days": true, "--fail-on": true, "--timeout": true, "--html": true, "--otel-endpoint": true})
+	args = normalizeFlagArgs(args, map[string]bool{"--input": true, "--warn-days": true, "--critical-days": true, "--ca-bundle": true, "--crl": true, "--crl-ca-bundle": true, "--crl-warn-days": true, "--crl-critical-days": true, "--crl-max-age-days": true, "--fail-on": true, "--timeout": true, "--html": true, "--otel-endpoint": true, "--concurrency": true})
 	fs := flag.NewFlagSet("scan", flag.ExitOnError)
 	input := fs.String("input", "", "input file with one host/url per line")
 	jsonOut := fs.Bool("json", false, "emit JSON")
-	yamlOut := fs.Bool("yaml", false, "emit YAML-like output")
+	yamlOut := fs.Bool("yaml", false, "emit YAML")
 	promOut := fs.Bool("prom", false, "emit Prometheus text output")
 	htmlOut := fs.String("html", "", "write HTML report to path")
 	otelEndpoint := fs.String("otel-endpoint", "", "export OTLP/HTTP metrics to endpoint, for example http://localhost:4318")
@@ -29,6 +30,9 @@ func cmdScan(args []string) {
 	crlWarnDays := fs.Int("crl-warn-days", 3, "warning threshold for CRL nextUpdate")
 	crlCriticalDays := fs.Int("crl-critical-days", 1, "critical threshold for CRL nextUpdate")
 	crlMaxAgeDays := fs.Int("crl-max-age-days", 0, "warning threshold for CRL thisUpdate age (0 = disabled)")
+	crlInsecure := fs.Bool("crl-insecure", false, "skip TLS verification when fetching CRLs; signatures are still required")
+	autoCRL := fs.Bool("auto-crl", false, "fetch and verify CRLs advertised by leaf certificates")
+	concurrency := fs.Int("concurrency", 4, "maximum concurrent target checks")
 	failOn := fs.String("fail-on", "critical", "exit non-zero on warn or critical")
 	timeout := fs.Duration("timeout", 10*time.Second, "network timeout")
 	fs.Parse(args)
@@ -48,32 +52,45 @@ func cmdScan(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
-
-	reports := make([]checker.Report, 0, len(targets))
-	for _, target := range targets {
-		host, address, err := normalizeTarget(target)
-		if err != nil {
-			reports = append(reports, checker.Report{
-				Target: target,
-				Host:   target,
-				Status: "error",
-				Error:  err.Error(),
-			})
-			continue
-		}
-		crlBundle := defaultCRLCABundle(*crlCABundle, *caBundle)
-		reports = append(reports, checker.Run(context.Background(), host, address, checker.Options{
-			WarnDays:        *warnDays,
-			CriticalDays:    *criticalDays,
-			Timeout:         *timeout,
-			CABundle:        *caBundle,
-			CRLSources:      []string(crls),
-			CRLCABundle:     crlBundle,
-			CRLWarnDays:     *crlWarnDays,
-			CRLCriticalDays: *crlCriticalDays,
-			CRLMaxAgeDays:   *crlMaxAgeDays,
-		}))
+	if err := validateFailOn(*failOn); err != nil {
+		fatal(err.Error())
 	}
+	if err := validateThresholds(*warnDays, *criticalDays); err != nil {
+		fatal(err.Error())
+	}
+	if err := validateThresholds(*crlWarnDays, *crlCriticalDays); err != nil {
+		fatal("CRL " + err.Error())
+	}
+	if *crlMaxAgeDays < 0 {
+		fatal("--crl-max-age-days cannot be negative")
+	}
+	if err := validateTimeout(*timeout); err != nil {
+		fatal(err.Error())
+	}
+	if *concurrency < 1 || *concurrency > 128 {
+		fatal("--concurrency must be between 1 and 128")
+	}
+
+	crlBundle := defaultCRLCABundle(*crlCABundle, *caBundle)
+	insecureSources := map[string]bool{}
+	if *crlInsecure {
+		for _, source := range crls {
+			insecureSources[source] = true
+		}
+	}
+	reports := runScanTargets(context.Background(), targets, *concurrency, checker.Options{
+		WarnDays:           *warnDays,
+		CriticalDays:       *criticalDays,
+		Timeout:            *timeout,
+		CABundle:           *caBundle,
+		CRLSources:         []string(crls),
+		CRLCABundle:        crlBundle,
+		CRLWarnDays:        *crlWarnDays,
+		CRLCriticalDays:    *crlCriticalDays,
+		CRLMaxAgeDays:      *crlMaxAgeDays,
+		AutoCRL:            *autoCRL,
+		CRLInsecureSources: insecureSources,
+	})
 	if strings.TrimSpace(*htmlOut) != "" {
 		if err := writeReportsHTML(*htmlOut, "certops scan", reports); err != nil {
 			fatal(err.Error())
@@ -102,4 +119,37 @@ func readInput(path string) ([]string, error) {
 		out = append(out, line)
 	}
 	return out, sc.Err()
+}
+
+func runScanTargets(ctx context.Context, targets []string, concurrency int, opts checker.Options) []checker.Report {
+	reports := make([]checker.Report, len(targets))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for worker := 0; worker < concurrency; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range jobs {
+				target := targets[index]
+				host, address, err := normalizeTarget(target)
+				if err != nil {
+					reports[index] = checker.Report{
+						SchemaVersion: checker.SchemaVersion,
+						Target:        target,
+						Host:          target,
+						Status:        "error",
+						Error:         err.Error(),
+					}
+					continue
+				}
+				reports[index] = checker.Run(ctx, host, address, opts)
+			}
+		}()
+	}
+	for index := range targets {
+		jobs <- index
+	}
+	close(jobs)
+	wg.Wait()
+	return reports
 }

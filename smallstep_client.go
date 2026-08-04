@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -89,7 +88,12 @@ func httpGet(endpoint string, timeout time.Duration, insecure bool) (int, []byte
 	if err != nil {
 		return 0, nil, err
 	}
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	if insecure {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
@@ -100,7 +104,7 @@ func httpGet(endpoint string, timeout time.Duration, insecure bool) (int, []byte
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	body, err := readLimited(resp.Body, 2<<20)
 	if err != nil {
 		return resp.StatusCode, nil, err
 	}
@@ -145,7 +149,7 @@ func validateSmallstepRoots(roots smallstepRoots) []smallstepFinding {
 	}
 	for _, cert := range roots.Certs {
 		if !cert.IsCA {
-			findings = append(findings, smallstepFinding{Severity: "warn", Message: "root bundle contains a non-CA certificate: " + cert.Subject})
+			findings = append(findings, smallstepFinding{Severity: "critical", Message: "root bundle contains a non-CA certificate: " + cert.Subject})
 		}
 		if cert.DaysLeft < 0 {
 			findings = append(findings, smallstepFinding{Severity: "critical", Message: "root certificate is expired: " + cert.Subject})

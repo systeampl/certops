@@ -96,8 +96,9 @@ bash docs/lab/smoke.sh
 ```
 
 The smoke test covers Smallstep, Vault, CFSSL-compatible, and generic PEM
-provider checks, CA fetch, inventory, plan, drift, HTML reports, a Vault-issued
-HTTPS endpoint, and remote Linux trust apply/verify/remove.
+provider checks, CA fetch, inventory, plan, drift, HTML reports, version output,
+concurrent scan, expected-state verification, separate SNI/connect handling, a
+Vault-issued HTTPS endpoint, and remote Linux trust apply/verify/remove.
 
 ## SSH Target
 

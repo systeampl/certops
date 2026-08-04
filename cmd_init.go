@@ -19,18 +19,18 @@ cas:
   - name: lan-step
     provider: smallstep
     url: https://ca.lan.example.com
-    fingerprint: SHA256:AA:BB:...
+    fingerprint: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
   - name: vault-prod
     provider: vault
     url: https://vault.example.com
     mount: pki
-    fingerprint: SHA256:CC:DD:...
+    fingerprint: SHA256:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
   - name: vendor-root
     provider: generic
     ca_bundle: vendor-root.pem
-    fingerprint: SHA256:11:22:...
+    fingerprint: SHA256:1111111111111111111111111111111111111111111111111111111111111111
 
 crls:
   - name: lan-step-crl
@@ -79,7 +79,7 @@ func cmdInit(args []string) {
 			fatal(path + " already exists; use --force to overwrite")
 		}
 	}
-	if err := os.WriteFile(path, []byte(starterConfig), 0644); err != nil {
+	if err := writeFileAtomic(path, []byte(starterConfig), 0644); err != nil {
 		fatal(err.Error())
 	}
 	fmt.Printf("created %s\n", strings.TrimSpace(path))

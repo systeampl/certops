@@ -17,9 +17,9 @@ func buildTrustReport(action string, source trustSource, certs []trustCert, rawC
 	for i := range report.Certs {
 		report.Certs[i].Installed, report.Certs[i].InstallNote = trustCertInstalled(plan, rawCerts[i])
 		if !report.Certs[i].IsCA {
-			report.Status = worseTrustStatus(report.Status, "warn")
+			report.Status = "critical"
 			report.Findings = append(report.Findings, trustFinding{
-				Severity: "warn",
+				Severity: "critical",
 				Message:  "certificate is not marked as a CA: " + report.Certs[i].Subject,
 			})
 		}
